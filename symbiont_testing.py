@@ -1,8 +1,8 @@
 # ---------------------------
-# Symbiont BINARY+HEX + SYMBOLS ENCODER/DECODER (fixed decoder)
+# Symbiont BINARY+HEX + SYMBOLS ENCODER/DECODER (fixed decoder + repeated letters)
 # ---------------------------
 
-#import pyperclip
+# import pyperclip  # Uncomment if clipboard support is needed
 
 # Reserved phrases → English symbols
 phrase_map = {
@@ -23,8 +23,8 @@ phrase_map = {
 # Space symbol
 space_symbol = "-"
 
-# Repetition symbols only for now. it would be like if leter is repeaded for example gcc cc = 2 2 would be : gccc would be ; and gcccc would be :: and so on
-letter_repeats = ['+', '*', '^', '%', '$']
+# Repetition symbols for consecutive letters
+letter_repeats = [';', '::', ';;;', '::::', ';;;;']  # 2,3,4,... repetitions
 
 # Split symbols for binary/hex
 split_symbols = ["!", "@", "#", "$", "%", "&"]
@@ -68,9 +68,11 @@ def encode_word(word, start_index=0, start_mode='bin'):
             repeat_count = 1
             while i + repeat_count < len(word) and word[i] == word[i + repeat_count]:
                 repeat_count += 1
+
             encoded.append(encode_letter(word[i], letter_index, mode))
+
             if repeat_count > 1:
-                symbol_index = min(repeat_count - 1, len(letter_repeats)-1)
+                symbol_index = min(repeat_count - 2, len(letter_repeats)-1)
                 encoded.append(letter_repeats[symbol_index])
             i += repeat_count
             letter_index += 1
@@ -94,7 +96,7 @@ def encode_text(message):
     return ' '.join(encoded_words).strip()
 
 # ---------------------------
-# Decode text (fixed, space-aware)
+# Decode text (fixed + repeated letters)
 # ---------------------------
 def decode_text(encoded_message):
     decoded_words = []
@@ -127,8 +129,8 @@ def decode_text(encoded_message):
             # Repeated letters
             if block in letter_repeats:
                 if last_char:
-                    repeat_count = letter_repeats.index(block) + 1
-                    decoded_word += last_char * repeat_count
+                    repeat_count = letter_repeats.index(block) + 2  # +2 because first repeat is not in symbol
+                    decoded_word += last_char * (repeat_count)
                 continue
 
             # Remove split symbols
@@ -154,7 +156,7 @@ def decode_text(encoded_message):
 # Interactive menu
 # ---------------------------
 def main():
-    print("Symbiont: Hybrid Binary+Hex + Symbols Encoder/Decoder (fixed decoder)")
+    print("Symbiont: Hybrid Binary+Hex + Symbols Encoder/Decoder (with repeated letters)")
     print("Type 'exit' to quit.\n")
 
     while True:
@@ -172,11 +174,12 @@ def main():
         if choice == 'encode':
             encoded = encode_text(user_input)
             print("\nEncoded message:\n", encoded)
-            try:
-                pyperclip.copy(encoded)
-                print("(Encoded message copied to clipboard!)")
-            except Exception:
-                pass
+            # Uncomment to copy to clipboard
+            # try:
+            #     pyperclip.copy(encoded)
+            #     print("(Encoded message copied to clipboard!)")
+            # except Exception:
+            #     pass
         else:
             decoded = decode_text(user_input)
             print("\nDecoded message:\n", decoded)

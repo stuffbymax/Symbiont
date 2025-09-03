@@ -1,21 +1,13 @@
 # ---------------------------
-# Symbiont BINARY + SYMBOLS ENCODER/DECODER
+# Symbiont BINARY+HEX + SYMBOLS ENCODER/DECODER (fixed decoder + repeated letters)
 # ---------------------------
 
-# Reserved sequences / words → English symbols
-sequence_map = {
-    "ch": "@",
-    "ck": "<}",
-    "sh": "#",
-    "th": "$",
-    "ph": "%",
-    "wh": "§"
-}
+# import pyperclip  # Uncomment if clipboard support is needed
 
 # Reserved phrases → English symbols
 phrase_map = {
     "i": "!",
-    "i am": "!:",
+    "i am": "!:]]",
     "we": "^",
     "we are": "^~",
     "you": "&*",
@@ -25,153 +17,176 @@ phrase_map = {
     "ish": "+!",
     "ee": "[[",
     "me": "^^[",
-    "war" : "§&ř"
+    "war": "§&ř"
 }
 
 # Space symbol
-space_symbol = "\\"
+space_symbol = "-"
 
-# Repetition symbols
-word_repeats = [',', ':', ';', "'", '~']
-letter_repeats = ['+', '*', '^', '%', '$']
+# Repetition symbols for consecutive letters
+letter_repeats = [';', '::', ';;;', '::::', ';;;;']  # 2,3,4,... repetitions
 
-# Split symbols for binary (rotating, no Czech for now)
+# Split symbols for binary/hex
 split_symbols = ["!", "@", "#", "$", "%", "&"]
 
-# Track used symbols to avoid repetition in phrase_map
-used_symbols = set(phrase_map.values())
-
 # ---------------------------
-# Encode a single letter → 4bits + symbol + 4bits
+# Encode a single letter → binary/hex + symbols
 # ---------------------------
-def encode_letter(letter, index=0):
-    binary = f"{ord(letter.lower()):08b}"
+def encode_letter(letter, index=0, mode='bin'):
     symbol = split_symbols[index % len(split_symbols)]
-    return binary[:4] + symbol + binary[4:]
+    ascii_val = ord(letter.lower())
+
+    if mode == 'bin':
+        binary = f"{ascii_val:08b}"
+        return symbol.join([binary[i:i+2] for i in range(0, 8, 2)])
+    elif mode == 'hex':
+        hexa = f"{ascii_val:02X}"
+        return symbol.join([hexa[i] for i in range(2)])
 
 # ---------------------------
-# Encode word with repeated letters inside
+# Encode word
 # ---------------------------
-def encode_word(word, start_index=0):
+def encode_word(word, start_index=0, start_mode='bin'):
     encoded = []
     i = 0
     letter_index = start_index
+    mode = start_mode
+
     while i < len(word):
-        repeat_count = 1
-        while i + repeat_count < len(word) and word[i] == word[i + repeat_count]:
-            repeat_count += 1
-        # Add binary for letter (split into 4+symbol+4)
-        encoded.append(encode_letter(word[i], letter_index))
-        letter_index += 1
-        # Repetition symbol if letters repeat
-        if repeat_count > 1:
-            symbol_index = min(repeat_count - 1, len(letter_repeats) - 1)
-            encoded.append(letter_repeats[symbol_index])
-        i += repeat_count
-    return ' '.join(encoded), letter_index
+        # Check for phrase matches
+        matched_phrase = None
+        for phrase, sym in sorted(phrase_map.items(), key=lambda x: -len(x[0])):
+            if word[i:i+len(phrase)] == phrase:
+                matched_phrase = (phrase, sym)
+                break
+
+        if matched_phrase:
+            encoded.append(matched_phrase[1])
+            i += len(matched_phrase[0])
+        else:
+            # Handle repeated letters
+            repeat_count = 1
+            while i + repeat_count < len(word) and word[i] == word[i + repeat_count]:
+                repeat_count += 1
+
+            encoded.append(encode_letter(word[i], letter_index, mode))
+
+            if repeat_count > 1:
+                symbol_index = min(repeat_count - 2, len(letter_repeats)-1)
+                encoded.append(letter_repeats[symbol_index])
+            i += repeat_count
+            letter_index += 1
+            mode = 'hex' if mode == 'bin' else 'bin'
+
+    return ' '.join(encoded), letter_index, mode
 
 # ---------------------------
-# Encode word with phrases inside + binary + proper separation
+# Encode text
 # ---------------------------
 def encode_text(message):
-    encoded = []
     words = message.lower().split(' ')
+    encoded_words = []
     letter_index = 0
+    mode = 'bin'
 
     for word in words:
-        temp_blocks = []
-        i = 0
-        while i < len(word):
-            matched_phrase = None
-            matched_sym = None
-            # Check phrases inside word
-            for phrase, sym in sorted(phrase_map.items(), key=lambda x: -len(x[0])):
-                if word[i:i+len(phrase)] == phrase:
-                    matched_phrase = phrase
-                    matched_sym = sym
-                    break
-            if matched_phrase:
-                temp_blocks.append(matched_sym)
-                i += len(matched_phrase)
-            else:
-                # No phrase → encode letter with split binary
-                repeat_count = 1
-                while i + repeat_count < len(word) and word[i] == word[i + repeat_count]:
-                    repeat_count += 1
-                temp_blocks.append(encode_letter(word[i], letter_index))
-                letter_index += 1
-                if repeat_count > 1:
-                    symbol_index = min(repeat_count - 1, len(letter_repeats)-1)
-                    temp_blocks.append(letter_repeats[symbol_index])
-                i += repeat_count
+        encoded_word, letter_index, mode = encode_word(word, letter_index, mode)
+        encoded_words.append(encoded_word + ' ' + space_symbol)
 
-        encoded.append(' '.join(temp_blocks) + ' ' + space_symbol)
-
-    return ' '.join(encoded).strip()
+    return ' '.join(encoded_words).strip()
 
 # ---------------------------
-# Decode text
+# Decode text (fixed + repeated letters)
 # ---------------------------
 def decode_text(encoded_message):
     decoded_words = []
     tokens = encoded_message.split(space_symbol)
+
     for token in tokens:
         token = token.strip()
         if not token:
             continue
 
-        # Check phrases
-        matched = False
-        for phrase, sym in phrase_map.items():
-            if sym in token:
-                decoded_words.append(phrase)
-                matched = True
-                break
-        if matched:
-            continue
-
-        # Decode binary + repeated letters
         decoded_word = ''
-        parts = token.split(' ')
-        i = 0
-        while i < len(parts):
-            part = parts[i]
-            # Handle split binary (4bits+symbol+4bits)
-            for sym in split_symbols:
-                if sym in part:
-                    part = part.replace(sym, "")
+        last_char = ''
+        blocks = token.split(' ')
+
+        for block in blocks:
+            if not block:
+                continue
+
+            # Phrase symbols
+            matched_phrase = None
+            for phrase, sym in sorted(phrase_map.items(), key=lambda x: -len(x[1])):
+                if block == sym:
+                    matched_phrase = phrase
                     break
-            if all(c in '01' for c in part) and len(part) == 8:
-                decoded_word += chr(int(part, 2))
-            elif part in letter_repeats:
-                decoded_word += decoded_word[-1] * (letter_repeats.index(part) + 1)
+            if matched_phrase:
+                decoded_word += matched_phrase
+                last_char = matched_phrase[-1]
+                continue
+
+            # Repeated letters
+            if block in letter_repeats:
+                if last_char:
+                    repeat_count = letter_repeats.index(block) + 2  # +2 because first repeat is not in symbol
+                    decoded_word += last_char * (repeat_count)
+                continue
+
+            # Remove split symbols
+            clean_block = ''.join(c for c in block if c not in split_symbols)
+
+            # Binary detection (8 bits)
+            if len(clean_block) == 8 and all(c in '01' for c in clean_block):
+                decoded_char = chr(int(clean_block, 2))
+            # Hex detection (2 digits)
+            elif len(clean_block) == 2 and all(c in '0123456789ABCDEF' for c in clean_block):
+                decoded_char = chr(int(clean_block, 16))
             else:
-                decoded_word += part
-            i += 1
+                decoded_char = clean_block
+
+            decoded_word += decoded_char
+            last_char = decoded_char
+
         decoded_words.append(decoded_word)
+
     return ' '.join(decoded_words)
 
 # ---------------------------
 # Interactive menu
 # ---------------------------
 def main():
-    print("Symbiont: Hybrid Binary + Symbols Encoder/Decoder (with 4+symbol+4 binary split)")
+    print("Symbiont: Hybrid Binary+Hex + Symbols Encoder/Decoder (with repeated letters)")
     print("Type 'exit' to quit.\n")
+
     while True:
         choice = input("Type 'encode' or 'decode': ").strip().lower()
         if choice == 'exit':
             break
-        if choice not in ['encode','decode']:
+        if choice not in ['encode', 'decode']:
             print("Invalid choice.\n")
             continue
+
         user_input = input("Enter your message: ").strip()
         if user_input.lower() == 'exit':
             break
+
         if choice == 'encode':
-            print("\nEncoded message:\n", encode_text(user_input))
+            encoded = encode_text(user_input)
+            print("\nEncoded message:\n", encoded)
+            # Uncomment to copy to clipboard
+            # try:
+            #     pyperclip.copy(encoded)
+            #     print("(Encoded message copied to clipboard!)")
+            # except Exception:
+            #     pass
         else:
-            print("\nDecoded message:\n", decode_text(user_input))
+            decoded = decode_text(user_input)
+            print("\nDecoded message:\n", decoded)
+
         print("---------------------------\n")
+
 
 if __name__ == "__main__":
     main()
+
