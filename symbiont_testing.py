@@ -1,10 +1,10 @@
 # ---------------------------
-# Symbiont BINARY+HEX + SYMBOLS ENCODER/DECODER (Caps Lock support)
+# Symbiont BINARY+HEX + SYMBOLS ENCODER/DECODER (Unified repeat map)
 # ---------------------------
 
-# import pyperclip  # Uncomment for clipboard support
+# import pyperclip  # Uncomment if clipboard support is needed
 
-# Reserved phrases → English symbols (unchanged)
+# Reserved phrases → English symbols
 phrase_map = {
     "i": "!",
     "i am": "!:]]",
@@ -23,7 +23,7 @@ phrase_map = {
 # Space symbol
 space_symbol = "-"
 
-# Repeated letters mapping
+# Unified repeat map for letters, words, phrases
 repeat_map = {
     2: ":",
     3: ";",
@@ -53,7 +53,6 @@ split_symbols = split_symbols_clean + [s1+s2 for s1 in split_symbols_clean for s
 def encode_letter(letter, index=0, mode='bin'):
     symbol = split_symbols[index % len(split_symbols)]
     ascii_val = ord(letter.lower())
-
     if mode == 'bin':
         binary = f"{ascii_val:08b}"
         return symbol.join([binary[i:i+2] for i in range(0, 8, 2)])
@@ -62,22 +61,24 @@ def encode_letter(letter, index=0, mode='bin'):
         return symbol.join([hexa[i] for i in range(2)])
 
 # ---------------------------
-# Get repeated-letter symbol
+# Get repeat symbol for any element
 # ---------------------------
 def get_repeat_symbol(count):
     if count <= 1:
         return ''
-    return repeat_map.get(count, repeat_map[max(repeat_map.keys())] + "'"*(count-5) if count > 5 else '')
+    if count in repeat_map:
+        return repeat_map[count]
+    # For counts > 5, append extra apostrophes
+    return repeat_map[5] + "'"*(count-5)
 
 # ---------------------------
-# Encode word
+# Encode a single word or phrase
 # ---------------------------
 def encode_word(word, start_index=0, start_mode='bin'):
     encoded = []
     i = 0
     letter_index = start_index
     mode = start_mode
-
     while i < len(word):
         # Check for phrase matches
         matched_phrase = None
@@ -90,20 +91,17 @@ def encode_word(word, start_index=0, start_mode='bin'):
             encoded.append(matched_phrase[1])
             i += len(matched_phrase[0])
         else:
-            # Count repeated letters
+            # Handle repeated letters
             repeat_count = 1
             while i + repeat_count < len(word) and word[i] == word[i + repeat_count]:
                 repeat_count += 1
 
-            # Caps Lock / uppercase handling
             letter = word[i]
             letter_encoded = encode_letter(letter, letter_index, mode)
             if letter.isupper():
                 letter_encoded = caps_symbol + letter_encoded
 
             encoded.append(letter_encoded)
-
-            # Add repeated-letter symbol if needed
             if repeat_count > 1:
                 encoded.append(get_repeat_symbol(repeat_count))
 
@@ -114,7 +112,7 @@ def encode_word(word, start_index=0, start_mode='bin'):
     return ' '.join(encoded), letter_index, mode
 
 # ---------------------------
-# Encode text
+# Encode full text with repeated words/phrases
 # ---------------------------
 def encode_text(message):
     words = message.split(' ')
@@ -122,11 +120,27 @@ def encode_text(message):
     letter_index = 0
     mode = 'bin'
 
+    prev_encoded = ''
+    repeat_count = 1
+
     for word in words:
         encoded_word, letter_index, mode = encode_word(word, letter_index, mode)
-        encoded_words.append(encoded_word + ' ' + space_symbol)
 
-    return ' '.join(encoded_words).strip()
+        # Check for repeated element (word or phrase)
+        if encoded_word == prev_encoded:
+            repeat_count += 1
+        else:
+            if repeat_count > 1:
+                encoded_words[-1] += get_repeat_symbol(repeat_count)
+            repeat_count = 1
+            encoded_words.append(encoded_word)
+            prev_encoded = encoded_word
+
+    # handle final repeats
+    if repeat_count > 1:
+        encoded_words[-1] += get_repeat_symbol(repeat_count)
+
+    return f" {space_symbol} ".join(encoded_words)
 
 # ---------------------------
 # Decode text
@@ -143,17 +157,16 @@ def decode_text(encoded_message):
         decoded_word = ''
         last_char = ''
         blocks = token.split(' ')
-
         caps_next = False
 
         for block in blocks:
             if not block:
                 continue
 
-            # Check for phrases
+            # Phrase check
             matched_phrase = None
             for phrase, sym in sorted(phrase_map.items(), key=lambda x: -len(x[1])):
-                if block == sym:
+                if block.startswith(sym):
                     matched_phrase = phrase
                     break
             if matched_phrase:
@@ -161,36 +174,38 @@ def decode_text(encoded_message):
                 last_char = matched_phrase[-1]
                 continue
 
-            # Repeated letters
+            # Check repeated-letter symbols
             for rep_count, sym in repeat_map.items():
-                if block == sym:
-                    if last_char:
-                        decoded_word += last_char * rep_count
+                if block.endswith(sym):
+                    clean_block = block[:-len(sym)]
+                    repeat_times = rep_count
                     break
             else:
-                # Caps Lock detection
-                if block.startswith(caps_symbol):
-                    caps_next = True
-                    block = block[len(caps_symbol):]
+                clean_block = block
+                repeat_times = 1
 
-                # Remove split symbols
-                clean_block = ''.join(c for c in block if c not in ''.join(split_symbols_clean))
+            # Caps Lock
+            if clean_block.startswith(caps_symbol):
+                caps_next = True
+                clean_block = clean_block[len(caps_symbol):]
 
-                # Detect binary (8 bits)
-                if len(clean_block) == 8 and all(c in '01' for c in clean_block):
-                    decoded_char = chr(int(clean_block, 2))
-                # Detect hex (2 digits)
-                elif len(clean_block) == 2 and all(c in '0123456789ABCDEF' for c in clean_block):
-                    decoded_char = chr(int(clean_block, 16))
-                else:
-                    decoded_char = clean_block
+            # Remove split symbols
+            clean_block2 = ''.join(c for c in clean_block if c not in ''.join(split_symbols_clean))
 
-                if caps_next:
-                    decoded_char = decoded_char.upper()
-                    caps_next = False
+            # Binary or hex
+            if len(clean_block2) == 8 and all(c in '01' for c in clean_block2):
+                decoded_char = chr(int(clean_block2, 2))
+            elif len(clean_block2) == 2 and all(c in '0123456789ABCDEF' for c in clean_block2):
+                decoded_char = chr(int(clean_block2, 16))
+            else:
+                decoded_char = clean_block2
 
-                decoded_word += decoded_char
-                last_char = decoded_char
+            if caps_next:
+                decoded_char = decoded_char.upper()
+                caps_next = False
+
+            decoded_word += decoded_char * repeat_times
+            last_char = decoded_char
 
         decoded_words.append(decoded_word)
 
@@ -200,7 +215,7 @@ def decode_text(encoded_message):
 # Interactive menu
 # ---------------------------
 def main():
-    print("Symbiont: Hybrid Binary+Hex + Symbols Encoder/Decoder with Caps Lock support")
+    print("Symbiont: Hybrid Binary+Hex + Symbols Encoder/Decoder (Unified repeat)")
     print("Type 'exit' to quit.\n")
 
     while True:
@@ -229,7 +244,6 @@ def main():
             print("\nDecoded message:\n", decoded)
 
         print("---------------------------\n")
-
 
 if __name__ == "__main__":
     main()
