@@ -1,10 +1,10 @@
 # ---------------------------
-# Symbiont BINARY+HEX + SYMBOLS ENCODER/DECODER (fixed decoder + repeated letters)
+# Symbiont BINARY+HEX + SYMBOLS ENCODER/DECODER (Caps Lock support)
 # ---------------------------
 
-# import pyperclip  # Uncomment if clipboard support is needed
+# import pyperclip  # Uncomment for clipboard support
 
-# Reserved phrases → English symbols
+# Reserved phrases → English symbols (unchanged)
 phrase_map = {
     "i": "!",
     "i am": "!:]]",
@@ -23,11 +23,29 @@ phrase_map = {
 # Space symbol
 space_symbol = "-"
 
-# Repetition symbols for consecutive letters
-letter_repeats = [';', '::', ';;;', '::::', ';;;;']  # 2,3,4,... repetitions
+# Repeated letters mapping
+repeat_map = {
+    2: ":",
+    3: ";",
+    4: "::",
+    5: "::'"
+}
 
-# Split symbols for binary/hex
-split_symbols = ["!", "@", "#", "$", "%", "&"]
+# Caps Lock / uppercase symbol
+caps_symbol = "^*?"
+
+# ---------------------------
+# Generate split_symbols avoiding phrase_map symbols
+# ---------------------------
+used_symbols = set()
+for sym in phrase_map.values():
+    used_symbols.update(sym)
+
+potential_symbols = list("!@#$%^&*~?+=|<>/")  # punctuation pool
+split_symbols_clean = [s for s in potential_symbols if s not in used_symbols]
+
+# Allow combinations of 1 or 2 symbols for variety
+split_symbols = split_symbols_clean + [s1+s2 for s1 in split_symbols_clean for s2 in split_symbols_clean]
 
 # ---------------------------
 # Encode a single letter → binary/hex + symbols
@@ -42,6 +60,14 @@ def encode_letter(letter, index=0, mode='bin'):
     elif mode == 'hex':
         hexa = f"{ascii_val:02X}"
         return symbol.join([hexa[i] for i in range(2)])
+
+# ---------------------------
+# Get repeated-letter symbol
+# ---------------------------
+def get_repeat_symbol(count):
+    if count <= 1:
+        return ''
+    return repeat_map.get(count, repeat_map[max(repeat_map.keys())] + "'"*(count-5) if count > 5 else '')
 
 # ---------------------------
 # Encode word
@@ -64,16 +90,23 @@ def encode_word(word, start_index=0, start_mode='bin'):
             encoded.append(matched_phrase[1])
             i += len(matched_phrase[0])
         else:
-            # Handle repeated letters
+            # Count repeated letters
             repeat_count = 1
             while i + repeat_count < len(word) and word[i] == word[i + repeat_count]:
                 repeat_count += 1
 
-            encoded.append(encode_letter(word[i], letter_index, mode))
+            # Caps Lock / uppercase handling
+            letter = word[i]
+            letter_encoded = encode_letter(letter, letter_index, mode)
+            if letter.isupper():
+                letter_encoded = caps_symbol + letter_encoded
 
+            encoded.append(letter_encoded)
+
+            # Add repeated-letter symbol if needed
             if repeat_count > 1:
-                symbol_index = min(repeat_count - 2, len(letter_repeats)-1)
-                encoded.append(letter_repeats[symbol_index])
+                encoded.append(get_repeat_symbol(repeat_count))
+
             i += repeat_count
             letter_index += 1
             mode = 'hex' if mode == 'bin' else 'bin'
@@ -84,7 +117,7 @@ def encode_word(word, start_index=0, start_mode='bin'):
 # Encode text
 # ---------------------------
 def encode_text(message):
-    words = message.lower().split(' ')
+    words = message.split(' ')
     encoded_words = []
     letter_index = 0
     mode = 'bin'
@@ -96,7 +129,7 @@ def encode_text(message):
     return ' '.join(encoded_words).strip()
 
 # ---------------------------
-# Decode text (fixed + repeated letters)
+# Decode text
 # ---------------------------
 def decode_text(encoded_message):
     decoded_words = []
@@ -111,11 +144,13 @@ def decode_text(encoded_message):
         last_char = ''
         blocks = token.split(' ')
 
+        caps_next = False
+
         for block in blocks:
             if not block:
                 continue
 
-            # Phrase symbols
+            # Check for phrases
             matched_phrase = None
             for phrase, sym in sorted(phrase_map.items(), key=lambda x: -len(x[1])):
                 if block == sym:
@@ -127,26 +162,35 @@ def decode_text(encoded_message):
                 continue
 
             # Repeated letters
-            if block in letter_repeats:
-                if last_char:
-                    repeat_count = letter_repeats.index(block) + 2  # +2 because first repeat is not in symbol
-                    decoded_word += last_char * (repeat_count)
-                continue
-
-            # Remove split symbols
-            clean_block = ''.join(c for c in block if c not in split_symbols)
-
-            # Binary detection (8 bits)
-            if len(clean_block) == 8 and all(c in '01' for c in clean_block):
-                decoded_char = chr(int(clean_block, 2))
-            # Hex detection (2 digits)
-            elif len(clean_block) == 2 and all(c in '0123456789ABCDEF' for c in clean_block):
-                decoded_char = chr(int(clean_block, 16))
+            for rep_count, sym in repeat_map.items():
+                if block == sym:
+                    if last_char:
+                        decoded_word += last_char * rep_count
+                    break
             else:
-                decoded_char = clean_block
+                # Caps Lock detection
+                if block.startswith(caps_symbol):
+                    caps_next = True
+                    block = block[len(caps_symbol):]
 
-            decoded_word += decoded_char
-            last_char = decoded_char
+                # Remove split symbols
+                clean_block = ''.join(c for c in block if c not in ''.join(split_symbols_clean))
+
+                # Detect binary (8 bits)
+                if len(clean_block) == 8 and all(c in '01' for c in clean_block):
+                    decoded_char = chr(int(clean_block, 2))
+                # Detect hex (2 digits)
+                elif len(clean_block) == 2 and all(c in '0123456789ABCDEF' for c in clean_block):
+                    decoded_char = chr(int(clean_block, 16))
+                else:
+                    decoded_char = clean_block
+
+                if caps_next:
+                    decoded_char = decoded_char.upper()
+                    caps_next = False
+
+                decoded_word += decoded_char
+                last_char = decoded_char
 
         decoded_words.append(decoded_word)
 
@@ -156,7 +200,7 @@ def decode_text(encoded_message):
 # Interactive menu
 # ---------------------------
 def main():
-    print("Symbiont: Hybrid Binary+Hex + Symbols Encoder/Decoder (with repeated letters)")
+    print("Symbiont: Hybrid Binary+Hex + Symbols Encoder/Decoder with Caps Lock support")
     print("Type 'exit' to quit.\n")
 
     while True:
@@ -174,10 +218,10 @@ def main():
         if choice == 'encode':
             encoded = encode_text(user_input)
             print("\nEncoded message:\n", encoded)
-            # Uncomment to copy to clipboard
+            # Uncomment for clipboard support
             # try:
             #     pyperclip.copy(encoded)
-            #     print("(Encoded message copied to clipboard!)")
+            #     print("(Copied to clipboard!)")
             # except Exception:
             #     pass
         else:
