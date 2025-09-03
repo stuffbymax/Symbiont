@@ -7,7 +7,7 @@
 # Reserved phrases → English symbols
 phrase_map = {
     "i": "!",
-    "i am": "!:",
+    "i am": "!:]]",
     "we": "^",
     "we are": "^~",
     "you": "&*",
@@ -21,9 +21,9 @@ phrase_map = {
 }
 
 # Space symbol
-space_symbol = "\\"
+space_symbol = "-"
 
-# Repetition symbols
+# Repetition symbols only for now. it would be like if leter is repeaded for example gcc cc = 2 2 would be : gccc would be ; and gcccc would be :: and so on
 letter_repeats = ['+', '*', '^', '%', '$']
 
 # Split symbols for binary/hex
