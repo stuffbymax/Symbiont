@@ -23,8 +23,9 @@ phrase_map = {
     "they are": "~@",
     "the": "*:",
     "ish": "+!",
-    "ee" : "[[",
-    "me" : "^^["
+    "ee": "[[",
+    "me": "^^[",
+    "war" : "§&ř"
 }
 
 # Space symbol
@@ -34,33 +35,40 @@ space_symbol = "\\"
 word_repeats = [',', ':', ';', "'", '~']
 letter_repeats = ['+', '*', '^', '%', '$']
 
+# Split symbols for binary (rotating, no Czech for now)
+split_symbols = ["!", "@", "#", "$", "%", "&"]
+
 # Track used symbols to avoid repetition in phrase_map
 used_symbols = set(phrase_map.values())
 
 # ---------------------------
-# Encode a single letter → 8-bit binary
+# Encode a single letter → 4bits + symbol + 4bits
 # ---------------------------
-def encode_letter(letter):
-    return f"{ord(letter.lower()):08b}"
+def encode_letter(letter, index=0):
+    binary = f"{ord(letter.lower()):08b}"
+    symbol = split_symbols[index % len(split_symbols)]
+    return binary[:4] + symbol + binary[4:]
 
 # ---------------------------
 # Encode word with repeated letters inside
 # ---------------------------
-def encode_word(word):
+def encode_word(word, start_index=0):
     encoded = []
     i = 0
+    letter_index = start_index
     while i < len(word):
         repeat_count = 1
         while i + repeat_count < len(word) and word[i] == word[i + repeat_count]:
             repeat_count += 1
-        # Add binary for letter
-        encoded.append(encode_letter(word[i]))
+        # Add binary for letter (split into 4+symbol+4)
+        encoded.append(encode_letter(word[i], letter_index))
+        letter_index += 1
         # Repetition symbol if letters repeat
         if repeat_count > 1:
-            symbol_index = min(repeat_count - 1, len(letter_repeats)-1)
+            symbol_index = min(repeat_count - 1, len(letter_repeats) - 1)
             encoded.append(letter_repeats[symbol_index])
         i += repeat_count
-    return ' '.join(encoded)
+    return ' '.join(encoded), letter_index
 
 # ---------------------------
 # Encode word with phrases inside + binary + proper separation
@@ -68,7 +76,7 @@ def encode_word(word):
 def encode_text(message):
     encoded = []
     words = message.lower().split(' ')
-    word_count = {}
+    letter_index = 0
 
     for word in words:
         temp_blocks = []
@@ -83,24 +91,24 @@ def encode_text(message):
                     matched_sym = sym
                     break
             if matched_phrase:
-                # Phrase matched → add symbol as a separate block
                 temp_blocks.append(matched_sym)
                 i += len(matched_phrase)
             else:
-                # No phrase → encode letter as binary
+                # No phrase → encode letter with split binary
                 repeat_count = 1
                 while i + repeat_count < len(word) and word[i] == word[i + repeat_count]:
                     repeat_count += 1
-                temp_blocks.append(encode_letter(word[i]))
+                temp_blocks.append(encode_letter(word[i], letter_index))
+                letter_index += 1
                 if repeat_count > 1:
                     symbol_index = min(repeat_count - 1, len(letter_repeats)-1)
                     temp_blocks.append(letter_repeats[symbol_index])
                 i += repeat_count
 
-        # Add blocks for this word and append space symbol
         encoded.append(' '.join(temp_blocks) + ' ' + space_symbol)
 
     return ' '.join(encoded).strip()
+
 # ---------------------------
 # Decode text
 # ---------------------------
@@ -128,10 +136,15 @@ def decode_text(encoded_message):
         i = 0
         while i < len(parts):
             part = parts[i]
-            if all(c in '01' for c in part):
-                decoded_word += chr(int(part,2))
+            # Handle split binary (4bits+symbol+4bits)
+            for sym in split_symbols:
+                if sym in part:
+                    part = part.replace(sym, "")
+                    break
+            if all(c in '01' for c in part) and len(part) == 8:
+                decoded_word += chr(int(part, 2))
             elif part in letter_repeats:
-                decoded_word += decoded_word[-1]*(letter_repeats.index(part)+1)
+                decoded_word += decoded_word[-1] * (letter_repeats.index(part) + 1)
             else:
                 decoded_word += part
             i += 1
@@ -142,7 +155,7 @@ def decode_text(encoded_message):
 # Interactive menu
 # ---------------------------
 def main():
-    print("Hybrid Binary + Symbols Encoder/Decoder (Phrases inside words)")
+    print("Symbiont: Hybrid Binary + Symbols Encoder/Decoder (with 4+symbol+4 binary split)")
     print("Type 'exit' to quit.\n")
     while True:
         choice = input("Type 'encode' or 'decode': ").strip().lower()
